@@ -197,11 +197,13 @@ The pipeline is orchestrated using **[Airflow/Mage]** with the following feature
 - **Data Quality**: Great Expectations, dbt tests
 - **Alerting**: PagerDuty, Slack webhooks
 
+
 ## Testing
+
 
 ```bash
 # Run all tests
-pytest
+pytest -q
 
 # Run with coverage
 pytest --cov=src --cov-report=html

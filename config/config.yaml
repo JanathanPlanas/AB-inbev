@@ -1,0 +1,13 @@
+app:
+  log_level: "info"
+  
+api:
+  base_url: "https://api.openbrewerydb.org/v1"
+
+
+params:
+    per_page:  200  # Maximum allowed by API
+    max_retries:  3
+    backoff_factor:  0.5
+    timeout:  30
+
