@@ -1,6 +1,6 @@
 
 
-```md
+
 # Testing Strategy
 
 ## Scope
