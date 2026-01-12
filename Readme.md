@@ -431,6 +431,17 @@ See [doc/MONITORING.md](doc/monitoring.md) for the complete monitoring strategy.
 
 ---
 
+
+
+## Author
+**Janathan Junior**  
+Data Engineer
+
+---
+## License
+
+This project was created as part of a technical assessment for AB-InBev/BEES.
+
 ```mermaid
 flowchart TD
     A[Open Brewery DB API] --> B[Bronze Layer<br>Raw JSONL (.jsonl.gz)]
@@ -454,14 +465,3 @@ flowchart TD
     style C fill:#add8e6,stroke:#333
     style D fill:#ffd580,stroke:#333
     style AirflowDAG fill:#f0f0f0,stroke:#bbb,stroke-dasharray: 5 5
-
-```
-
-## Author
-**Janathan Junior**  
-Data Engineer
-
----
-## License
-
-This project was created as part of a technical assessment for AB-InBev/BEES.
