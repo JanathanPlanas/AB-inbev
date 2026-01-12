@@ -431,6 +431,32 @@ See [doc/MONITORING.md](doc/monitoring.md) for the complete monitoring strategy.
 
 ---
 
+```mermaid
+flowchart TD
+    A[Open Brewery DB API] --> B[Bronze Layer<br>Raw JSONL (.jsonl.gz)]
+    B --> C[Silver Layer<br>Parquet<br>+ Partition by state]
+    C --> D[Gold Layer<br>Aggregation<br>Count per type/location]
+
+    subgraph Airflow DAG
+        E[extract_bronze]
+        F[transform_silver]
+        G[transform_gold]
+        H[check_nulls_in_silver]
+    end
+
+    E --> B
+    F --> C
+    G --> D
+    H --> C
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#d0f0c0,stroke:#333
+    style C fill:#add8e6,stroke:#333
+    style D fill:#ffd580,stroke:#333
+    style AirflowDAG fill:#f0f0f0,stroke:#bbb,stroke-dasharray: 5 5
+
+```
+
 ## Author
 **Janathan Junior**  
 Data Engineer
