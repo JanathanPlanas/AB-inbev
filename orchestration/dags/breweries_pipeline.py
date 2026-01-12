@@ -10,7 +10,7 @@ Features:
 - Error handling and alerting
 - Sequential task dependencies
 
-Author: [Your Name]
+Author: Janathan Junior
 Date: January 2025
 """
 
