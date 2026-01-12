@@ -223,7 +223,7 @@ python -m src.pipelines.gold_layer
 make run-all
 ```
 
-### Docker Commands
+### Docker Commands (used)
 
 | Action       | Command                  |
 |--------------|--------------------------|
@@ -375,7 +375,7 @@ pytest tests/unit/test_brewery_api_client.py -v
 
 ## Monitoring & Alerting
 
-See [doc/MONITORING.md](doc/MONITORING.md) for the complete monitoring strategy.
+See [doc/MONITORING.md](doc/monitoring.md) for the complete monitoring strategy.
 
 ### Summary
 
@@ -432,12 +432,10 @@ See [doc/MONITORING.md](doc/MONITORING.md) for the complete monitoring strategy.
 ---
 
 ## Author
-
-**[Your Name]**  
+**Janathan Junior**  
 Data Engineer
 
 ---
-
 ## License
 
 This project was created as part of a technical assessment for AB-InBev/BEES.
