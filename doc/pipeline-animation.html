@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BEES Data Pipeline Animation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .pipeline {
+      width: 650px;
+    }
+    
+    .title {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .title h1 {
+      font-size: 24px;
+      color: #1f2937;
+      margin-bottom: 5px;
+    }
+    
+    .title p {
+      font-size: 12px;
+      color: #6b7280;
+    }
+    
+    .container {
+      border-radius: 12px;
+      padding: 15px 20px;
+      margin-bottom: 10px;
+      position: relative;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.5s ease;
+    }
+    
+    .container.active {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    
+    .container-label {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    
+    .container-content {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 30px;
+      padding: 10px 0;
+    }
+    
+    .box {
+      background: white;
+      border-radius: 8px;
+      padding: 12px 20px;
+      border: 2px solid;
+      text-align: center;
+      min-width: 120px;
+    }
+    
+    .box.pill {
+      border-radius: 25px;
+    }
+    
+    .box-icon {
+      font-size: 24px;
+      margin-bottom: 5px;
+    }
+    
+    .box-title {
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .container-desc {
+      text-align: center;
+      font-size: 9px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+    
+    /* Extract */
+    .extract { background: #EFF6FF; border: 2px solid #BFDBFE; }
+    .extract .container-label { color: #1E40AF; }
+    .extract .box { border-color: #3B82F6; }
+    .extract .box-title { color: #1E40AF; }
+    
+    /* Ingest */
+    .ingest { background: #FEF3C7; border: 2px solid #FCD34D; }
+    .ingest .container-label { color: #92400E; }
+    .ingest .box { border-color: #D97706; }
+    .ingest .box-title { color: #92400E; }
+    
+    /* Transform */
+    .transform { background: #FEF9C3; border: 2px solid #FDE047; }
+    .transform .container-label { color: #854D0E; }
+    .transform .box { border-color: #EAB308; }
+    .transform .box-title { color: #854D0E; }
+    
+    /* Store */
+    .store { background: #F3F4F6; border: 2px solid #D1D5DB; }
+    .store .container-label { color: #374151; }
+    .store .box.silver { border-color: #6B7280; }
+    .store .box.silver .box-title { color: #374151; }
+    .store .box.gold { border-color: #F59E0B; }
+    .store .box.gold .box-title { color: #92400E; }
+    
+    /* Orchestrate */
+    .orchestrate { background: #ECFDF5; border: 2px solid #A7F3D0; }
+    .orchestrate .container-label { color: #166534; }
+    .orchestrate .box { border-color: #10B981; }
+    .orchestrate .box-title { color: #166534; }
+    
+    .arrow {
+      text-align: center;
+      font-size: 20px;
+      color: #9CA3AF;
+      margin: 5px 0;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .arrow.active {
+      opacity: 1;
+    }
+    
+    .db-icon {
+      width: 40px;
+      height: 30px;
+      margin: 0 auto 5px;
+    }
+    
+    .db-icon ellipse, .db-icon path {
+      fill: none;
+      stroke-width: 1.5;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 15px;
+      font-size: 10px;
+      color: #9CA3AF;
+    }
+    
+    /* Pulse animation for active step */
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+      50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+    }
+    
+    .container.highlight {
+      animation: pulse 1s ease-in-out;
+    }
+
+    .inner-arrow {
+      font-size: 16px;
+      color: #6B7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="pipeline">
+    <div class="title">
+      <h1>BEES Data Pipeline</h1>
+      <p>Medallion Architecture • DuckDB + Delta Lake</p>
+    </div>
+    
+    <!-- Extract -->
+    <div class="container extract" id="step1">
+      <span class="container-label">Extract</span>
+      <div class="container-content">
+        <div class="box pill">
+          <div class="box-icon">☁️</div>
+          <div class="box-title">Open Brewery DB API</div>
+        </div>
+      </div>
+      <div class="container-desc">REST API • ~8,000 breweries • Paginated</div>
+    </div>
+    
+    <div class="arrow" id="arrow1">▼</div>
+    
+    <!-- Ingest -->
+    <div class="container ingest" id="step2">
+      <span class="container-label">Ingest</span>
+      <div class="container-content">
+        <div class="box">
+          <svg class="db-icon" viewBox="0 0 40 30">
+            <ellipse cx="20" cy="6" rx="15" ry="5" stroke="#B45309"/>
+            <path d="M5,6 L5,24 C5,27 12,30 20,30 S35,27 35,24 L35,6" stroke="#B45309"/>
+            <path d="M5,15 C5,18 12,21 20,21 S35,18 35,15" stroke="#B45309"/>
+          </svg>
+          <div class="box-title">Bronze Layer</div>
+        </div>
+      </div>
+      <div class="container-desc">JSONL.gz • Raw Data • Metadata</div>
+    </div>
+    
+    <div class="arrow" id="arrow2">▼</div>
+    
+    <!-- Transform -->
+    <div class="container transform" id="step3">
+      <span class="container-label">Transform</span>
+      <div class="container-content">
+        <div class="box pill">
+          <div class="box-icon">🦆</div>
+          <div class="box-title">DuckDB</div>
+        </div>
+        <div class="box pill">
+          <div class="box-icon">🏹</div>
+          <div class="box-title">PyArrow</div>
+        </div>
+      </div>
+      <div class="container-desc">SQL Transformations • Clean • Validate • Deduplicate</div>
+    </div>
+    
+    <div class="arrow" id="arrow3">▼</div>
+    
+    <!-- Store -->
+    <div class="container store" id="step4">
+      <span class="container-label">Store</span>
+      <div class="container-content">
+        <div class="box silver">
+          <svg class="db-icon" viewBox="0 0 40 30">
+            <ellipse cx="20" cy="6" rx="15" ry="5" stroke="#4B5563"/>
+            <path d="M5,6 L5,24 C5,27 12,30 20,30 S35,27 35,24 L35,6" stroke="#4B5563"/>
+            <path d="M5,15 C5,18 12,21 20,21 S35,18 35,15" stroke="#4B5563"/>
+          </svg>
+          <div class="box-title">Silver Layer</div>
+        </div>
+        <span class="inner-arrow">→</span>
+        <div class="box gold">
+          <svg class="db-icon" viewBox="0 0 40 30">
+            <ellipse cx="20" cy="6" rx="15" ry="5" stroke="#D97706"/>
+            <path d="M5,6 L5,24 C5,27 12,30 20,30 S35,27 35,24 L35,6" stroke="#D97706"/>
+            <path d="M5,15 C5,18 12,21 20,21 S35,18 35,15" stroke="#D97706"/>
+          </svg>
+          <div class="box-title">Gold Layer</div>
+        </div>
+      </div>
+      <div class="container-desc">Delta Lake • ACID • Time Travel • Partitioned by country/state</div>
+    </div>
+    
+    <div class="arrow" id="arrow4">▼</div>
+    
+    <!-- Orchestrate -->
+    <div class="container orchestrate" id="step5">
+      <span class="container-label">Orchestrate</span>
+      <div class="container-content">
+        <div class="box pill">
+          <div class="box-icon">🌬️</div>
+          <div class="box-title">Airflow</div>
+        </div>
+        <div class="box pill">
+          <div class="box-icon">🐳</div>
+          <div class="box-title">Docker</div>
+        </div>
+        <div style="text-align: center; font-size: 10px; color: #166534;">
+          <div>@daily</div>
+          <div style="color: #6B7280; font-size: 9px;">3 retries</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="footer">
+      DuckDB + PyArrow + Delta Lake + Airflow + Docker
+    </div>
+  </div>
+
+  <script>
+    // Animation sequence
+    const steps = [
+      { container: 'step1', arrow: null },
+      { container: 'step1', arrow: 'arrow1' },
+      { container: 'step2', arrow: null },
+      { container: 'step2', arrow: 'arrow2' },
+      { container: 'step3', arrow: null },
+      { container: 'step3', arrow: 'arrow3' },
+      { container: 'step4', arrow: null },
+      { container: 'step4', arrow: 'arrow4' },
+      { container: 'step5', arrow: null },
+    ];
+    
+    let currentStep = 0;
+    
+    function animate() {
+      // Show all previous containers and arrows
+      for (let i = 0; i <= currentStep && i < steps.length; i++) {
+        const step = steps[i];
+        if (step.container) {
+          document.getElementById(step.container).classList.add('active');
+        }
+        if (step.arrow) {
+          document.getElementById(step.arrow).classList.add('active');
+        }
+      }
+      
+      // Highlight current container
+      document.querySelectorAll('.container').forEach(c => c.classList.remove('highlight'));
+      if (steps[currentStep] && steps[currentStep].container) {
+        document.getElementById(steps[currentStep].container).classList.add('highlight');
+      }
+      
+      currentStep++;
+      
+      if (currentStep >= steps.length) {
+        // Reset after showing complete pipeline
+        setTimeout(() => {
+          currentStep = 0;
+          document.querySelectorAll('.container').forEach(c => {
+            c.classList.remove('active', 'highlight');
+          });
+          document.querySelectorAll('.arrow').forEach(a => {
+            a.classList.remove('active');
+          });
+          setTimeout(animate, 500);
+        }, 3000);
+      } else {
+        setTimeout(animate, 600);
+      }
+    }
+    
+    // Start animation
+    setTimeout(animate, 500);
+  </script>
+</body>
+</html>
