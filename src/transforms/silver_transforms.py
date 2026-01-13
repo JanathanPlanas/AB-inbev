@@ -1,359 +1,175 @@
 """
-Silver Layer Transformations.
-
-This module contains transformation functions for converting
-Bronze layer data into clean, standardized Silver layer data.
-
-Transformations applied:
-- Data type standardization
-- Null handling
-- Column selection and ordering
-- Deduplication
-- Coordinate validation
+Silver Layer Transformations using DuckDB + PyArrow.
+NO PANDAS DEPENDENCY.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
 
-import pandas as pd
-import numpy as np
+import duckdb
+import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-
-# Define the expected schema for Silver layer
-SILVER_SCHEMA = {
-    "id": "string",
-    "name": "string",
-    "brewery_type": "string",
-    "address_1": "string",
-    "address_2": "string",
-    "address_3": "string",
-    "city": "string",
-    "state_province": "string",
-    "postal_code": "string",
-    "country": "string",
-    "longitude": "float64",
-    "latitude": "float64",
-    "phone": "string",
-    "website_url": "string",
-}
-
-# Columns to keep in Silver layer (excluding deprecated and metadata columns)
 SILVER_COLUMNS = [
-    "id",
-    "name", 
-    "brewery_type",
-    "address_1",
-    "address_2",
-    "address_3",
-    "city",
-    "state_province",
-    "postal_code",
-    "country",
-    "longitude",
-    "latitude",
-    "phone",
-    "website_url",
+    "id", "name", "brewery_type", "address_1", "address_2", "address_3",
+    "city", "state_province", "postal_code", "country",
+    "longitude", "latitude", "phone", "website_url",
 ]
 
-# Valid brewery types according to API documentation
 VALID_BREWERY_TYPES = [
-    "micro",
-    "nano", 
-    "regional",
-    "brewpub",
-    "large",
-    "planning",
-    "bar",
-    "contract",
-    "proprietor",
-    "closed",
+    "micro", "nano", "regional", "brewpub", "large",
+    "planning", "bar", "contract", "proprietor", "closed",
 ]
 
+SILVER_SCHEMA = pa.schema([
+    ("id", pa.string()), ("name", pa.string()), ("brewery_type", pa.string()),
+    ("address_1", pa.string()), ("address_2", pa.string()), ("address_3", pa.string()),
+    ("city", pa.string()), ("state_province", pa.string()), ("postal_code", pa.string()),
+    ("country", pa.string()), ("longitude", pa.float64()), ("latitude", pa.float64()),
+    ("phone", pa.string()), ("website_url", pa.string()),
+])
 
-def select_columns(df: pd.DataFrame, columns: Optional[List[str]] = None) -> pd.DataFrame:
-    """
-    Select and order columns for Silver layer.
+
+class DuckDBTransformer:
+    """DuckDB-based transformer for Silver layer."""
     
-    Args:
-        df: Input DataFrame
-        columns: List of columns to select (defaults to SILVER_COLUMNS)
+    def __init__(self):
+        self.conn = duckdb.connect(":memory:")
+    
+    def transform_bronze_to_silver(self, bronze_data: pa.Table | list[dict]) -> pa.Table:
+        """Transform Bronze data to Silver."""
+        # Convert input to list if PyArrow Table
+        if isinstance(bronze_data, pa.Table):
+            data_list = bronze_data.to_pylist()
+        else:
+            data_list = bronze_data
         
-    Returns:
-        DataFrame with selected columns
-    """
-    columns = columns or SILVER_COLUMNS
-    
-    # Only select columns that exist in the DataFrame
-    available_columns = [col for col in columns if col in df.columns]
-    missing_columns = [col for col in columns if col not in df.columns]
-    
-    if missing_columns:
-        logger.warning(f"Missing columns in source data: {missing_columns}")
-    
-    logger.info(f"Selecting {len(available_columns)} columns")
-    return df[available_columns].copy()
-
-
-def standardize_types(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standardize column data types.
-    
-    Args:
-        df: Input DataFrame
+        if not data_list:
+            # Return empty table with schema
+            return pa.Table.from_pylist([], schema=SILVER_SCHEMA)
         
-    Returns:
-        DataFrame with standardized types
-    """
-    df = df.copy()
-    
-    # String columns
-    string_columns = [
-        "id", "name", "brewery_type", "address_1", "address_2", "address_3",
-        "city", "state_province", "postal_code", "country", "phone", "website_url"
-    ]
-    
-    for col in string_columns:
-        if col in df.columns:
-            df[col] = df[col].astype("string")
-    
-    # Numeric columns (coordinates)
-    numeric_columns = ["longitude", "latitude"]
-    
-    for col in numeric_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    
-    logger.info("Standardized column data types")
-    return df
-
-
-def handle_nulls(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Handle null values appropriately.
-    
-    - String columns: Replace None with empty string or keep as NA
-    - Numeric columns: Keep as NaN for missing coordinates
-    
-    Args:
-        df: Input DataFrame
+        record_count = len(data_list)
+        logger.info(f"Starting DuckDB transformation with {record_count} records")
         
-    Returns:
-        DataFrame with handled nulls
-    """
-    df = df.copy()
-    
-    # For string columns, convert None to pandas NA
-    string_columns = df.select_dtypes(include=["string", "object"]).columns
-    for col in string_columns:
-        df[col] = df[col].replace({None: pd.NA, "": pd.NA, "None": pd.NA})
-    
-    # Log null counts
-    null_counts = df.isnull().sum()
-    columns_with_nulls = null_counts[null_counts > 0]
-    
-    if len(columns_with_nulls) > 0:
-        logger.info(f"Columns with null values: {dict(columns_with_nulls)}")
-    
-    return df
-
-
-def validate_coordinates(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Validate and clean coordinate values.
-    
-    Valid ranges:
-    - Latitude: -90 to 90
-    - Longitude: -180 to 180
-    
-    Invalid coordinates are set to NaN.
-    
-    Args:
-        df: Input DataFrame
+        # Normalize data - ensure all expected columns exist
+        normalized = []
+        for row in data_list:
+            norm_row = {}
+            for col in SILVER_COLUMNS:
+                norm_row[col] = row.get(col)
+            normalized.append(norm_row)
         
-    Returns:
-        DataFrame with validated coordinates
-    """
-    df = df.copy()
-    
-    if "latitude" in df.columns:
-        invalid_lat = (df["latitude"] < -90) | (df["latitude"] > 90)
-        invalid_lat_count = invalid_lat.sum()
-        if invalid_lat_count > 0:
-            logger.warning(f"Found {invalid_lat_count} invalid latitude values, setting to NaN")
-            df.loc[invalid_lat, "latitude"] = np.nan
-    
-    if "longitude" in df.columns:
-        invalid_lon = (df["longitude"] < -180) | (df["longitude"] > 180)
-        invalid_lon_count = invalid_lon.sum()
-        if invalid_lon_count > 0:
-            logger.warning(f"Found {invalid_lon_count} invalid longitude values, setting to NaN")
-            df.loc[invalid_lon, "longitude"] = np.nan
-    
-    return df
-
-
-def validate_brewery_type(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Validate brewery_type values against known types.
-    
-    Unknown types are logged but kept (API might have new types).
-    
-    Args:
-        df: Input DataFrame
+        bronze_table = pa.Table.from_pylist(normalized)
+        self.conn.register("bronze", bronze_table)
         
-    Returns:
-        DataFrame (unchanged, but with logging)
-    """
-    if "brewery_type" not in df.columns:
-        return df
-    
-    unique_types = df["brewery_type"].dropna().unique()
-    unknown_types = [t for t in unique_types if t not in VALID_BREWERY_TYPES]
-    
-    if unknown_types:
-        logger.warning(f"Found unknown brewery types: {unknown_types}")
-    
-    type_counts = df["brewery_type"].value_counts()
-    logger.info(f"Brewery type distribution:\n{type_counts.to_string()}")
-    
-    return df
-
-
-def deduplicate(df: pd.DataFrame, subset: Optional[List[str]] = None) -> pd.DataFrame:
-    """
-    Remove duplicate records.
-    
-    Args:
-        df: Input DataFrame
-        subset: Columns to consider for deduplication (defaults to 'id')
+        transform_sql = """
+        WITH cleaned AS (
+            SELECT
+                id,
+                TRIM(name) as name,
+                TRIM(LOWER(brewery_type)) as brewery_type,
+                TRIM(address_1) as address_1,
+                TRIM(address_2) as address_2,
+                TRIM(address_3) as address_3,
+                TRIM(city) as city,
+                TRIM(state_province) as state_province,
+                TRIM(postal_code) as postal_code,
+                TRIM(country) as country,
+                TRY_CAST(longitude AS DOUBLE) as longitude,
+                TRY_CAST(latitude AS DOUBLE) as latitude,
+                TRIM(phone) as phone,
+                TRIM(website_url) as website_url
+            FROM bronze
+            WHERE id IS NOT NULL
+        ),
+        validated AS (
+            SELECT
+                id, name, brewery_type, address_1, address_2, address_3,
+                city, state_province, postal_code, country,
+                CASE WHEN longitude < -180 OR longitude > 180 THEN NULL ELSE longitude END as longitude,
+                CASE WHEN latitude < -90 OR latitude > 90 THEN NULL ELSE latitude END as latitude,
+                phone, website_url
+            FROM cleaned
+        ),
+        deduplicated AS (
+            SELECT DISTINCT ON (id)
+                id, name, brewery_type, address_1, address_2, address_3, city,
+                COALESCE(NULLIF(TRIM(state_province), ''), 'Unknown') as state_province,
+                postal_code,
+                COALESCE(NULLIF(TRIM(country), ''), 'Unknown') as country,
+                longitude, latitude, phone, website_url
+            FROM validated
+            ORDER BY id
+        )
+        SELECT * FROM deduplicated
+        """
         
-    Returns:
-        DataFrame with duplicates removed
-    """
-    subset = subset or ["id"]
+        result = self.conn.execute(transform_sql).fetch_arrow_table()
+        logger.info(f"DuckDB transformation complete: {result.num_rows} records")
+        return result
     
-    initial_count = len(df)
-    df = df.drop_duplicates(subset=subset, keep="first")
-    final_count = len(df)
-    
-    removed = initial_count - final_count
-    if removed > 0:
-        logger.info(f"Removed {removed} duplicate records")
-    else:
-        logger.info("No duplicate records found")
-    
-    return df
-
-
-def clean_string_values(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean string values by trimming whitespace.
-    
-    Args:
-        df: Input DataFrame
+    def get_transformation_summary(self, bronze_table: pa.Table, silver_table: pa.Table) -> dict:
+        """Generate transformation summary."""
+        if silver_table.num_rows == 0:
+            return {
+                "bronze_record_count": bronze_table.num_rows,
+                "silver_record_count": 0,
+                "records_removed": bronze_table.num_rows,
+                "null_counts": {},
+                "unique_countries": 0,
+                "unique_states": 0,
+                "unique_types": 0,
+            }
         
-    Returns:
-        DataFrame with cleaned strings
-    """
-    df = df.copy()
-    
-    string_columns = df.select_dtypes(include=["string", "object"]).columns
-    
-    for col in string_columns:
-        # Strip whitespace
-        df[col] = df[col].str.strip()
-        # Replace empty strings with NA
-        df[col] = df[col].replace({"": pd.NA})
-    
-    logger.info(f"Cleaned string values in {len(string_columns)} columns")
-    return df
-
-
-def add_partition_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure partition columns are properly formatted.
-    
-    Creates clean versions of country and state_province for partitioning.
-    
-    Args:
-        df: Input DataFrame
+        self.conn.register("silver_summary", silver_table)
+        stats = self.conn.execute("""
+            SELECT 
+                COUNT(DISTINCT country) as unique_countries,
+                COUNT(DISTINCT state_province) as unique_states,
+                COUNT(DISTINCT brewery_type) as unique_types
+            FROM silver_summary
+        """).fetchone()
         
-    Returns:
-        DataFrame with partition-ready columns
-    """
-    df = df.copy()
+        return {
+            "bronze_record_count": bronze_table.num_rows,
+            "silver_record_count": silver_table.num_rows,
+            "records_removed": bronze_table.num_rows - silver_table.num_rows,
+            "null_counts": {},
+            "unique_countries": stats[0],
+            "unique_states": stats[1],
+            "unique_types": stats[2],
+        }
     
-    # Clean country for partitioning (replace spaces, handle nulls)
-    if "country" in df.columns:
-        df["country"] = df["country"].fillna("Unknown")
-        df["country"] = df["country"].str.strip()
-        df["country"] = df["country"].replace({"": "Unknown"})
-    
-    # Clean state_province for partitioning
-    if "state_province" in df.columns:
-        df["state_province"] = df["state_province"].fillna("Unknown")
-        df["state_province"] = df["state_province"].str.strip()
-        df["state_province"] = df["state_province"].replace({"": "Unknown"})
-    
-    logger.info("Prepared partition columns")
-    return df
+    def close(self):
+        self.conn.close()
 
 
-def transform_bronze_to_silver(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply all Silver layer transformations.
-    
-    This is the main transformation function that chains all
-    individual transformations in the correct order.
-    
-    Args:
-        df: Bronze layer DataFrame
-        
-    Returns:
-        Transformed Silver layer DataFrame
-    """
-    logger.info(f"Starting Silver transformation with {len(df)} records")
-    
-    # Apply transformations in order
-    df = select_columns(df)
-    df = standardize_types(df)
-    df = handle_nulls(df)
-    df = clean_string_values(df)
-    df = validate_coordinates(df)
-    df = validate_brewery_type(df)
-    df = deduplicate(df)
-    df = add_partition_columns(df)
-    
-    logger.info(f"Silver transformation complete: {len(df)} records")
-    return df
+# Convenience functions
+def transform_bronze_to_silver(data: pa.Table | list[dict]) -> pa.Table:
+    transformer = DuckDBTransformer()
+    try:
+        return transformer.transform_bronze_to_silver(data)
+    finally:
+        transformer.close()
 
 
-def get_transformation_summary(
-    bronze_df: pd.DataFrame, 
-    silver_df: pd.DataFrame
-) -> dict:
-    """
-    Generate a summary of the transformation.
-    
-    Args:
-        bronze_df: Original Bronze DataFrame
-        silver_df: Transformed Silver DataFrame
-        
-    Returns:
-        Dictionary with transformation statistics
-    """
-    return {
-        "bronze_record_count": len(bronze_df),
-        "silver_record_count": len(silver_df),
-        "records_removed": len(bronze_df) - len(silver_df),
-        "bronze_columns": list(bronze_df.columns),
-        "silver_columns": list(silver_df.columns),
-        "columns_removed": len(bronze_df.columns) - len(silver_df.columns),
-        "null_counts": dict(silver_df.isnull().sum()),
-        "brewery_types": dict(silver_df["brewery_type"].value_counts()) if "brewery_type" in silver_df.columns else {},
-        "countries": list(silver_df["country"].unique()) if "country" in silver_df.columns else [],
-    }
+def get_transformation_summary(bronze_table: pa.Table, silver_table: pa.Table) -> dict:
+    transformer = DuckDBTransformer()
+    try:
+        return transformer.get_transformation_summary(bronze_table, silver_table)
+    finally:
+        transformer.close()
+
+
+# Helper functions
+def arrow_table_from_pylist(data: list[dict]) -> pa.Table:
+    return pa.Table.from_pylist(data)
+
+def arrow_table_to_pylist(table: pa.Table) -> list[dict]:
+    return table.to_pylist()
+
+def get_column_as_list(table: pa.Table, column: str) -> list:
+    return table.column(column).to_pylist()
