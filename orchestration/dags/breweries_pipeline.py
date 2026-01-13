@@ -42,7 +42,7 @@ def run_unit_tests(**context):
     If tests fail, the pipeline stops immediately.
     """
     result = subprocess.run(
-        ["python", "-m", "pytest", "tests/", "-v", "--tb=short", "-q"],
+       ["python", "-m", "pytest", "/opt/airflow/tests", "-v", "--tb=short"],
         capture_output=True,
         text=True
     )
@@ -89,10 +89,10 @@ def validate_bronze_data(**context):
     
     checks = {
         "has_records": total_records > 0,
-        "has_pages": manifest.get("pages_written", 0) > 0,
-        "status_success": manifest.get("status") == "success",
+        "has_pages": len(manifest.get("pages", [])) > 0,
+        "has_expected_total": manifest.get("expected_total") == total_records,
     }
-    
+
     failed_checks = [k for k, v in checks.items() if not v]
     
     if failed_checks:

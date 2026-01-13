@@ -20,13 +20,15 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     PYTHONPATH: '/opt/airflow/app'
-    _PIP_ADDITIONAL_REQUIREMENTS: 'requests duckdb pyarrow deltalake'
+    _PIP_ADDITIONAL_REQUIREMENTS: 'requests duckdb pyarrow deltalake pytest pytest-cov'
   volumes:
     - ./orchestration/dags:/opt/airflow/dags
     - ./src:/opt/airflow/app/src
     - ./config:/opt/airflow/app/config
     - ./data:/opt/airflow/data
     - airflow-logs:/opt/airflow/logs
+    - ./tests:/opt/airflow/tests
+
   depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy

@@ -427,6 +427,8 @@ pytest tests/unit/test_brewery_api_client.py -v
 - Aggregation logic
 - Edge cases (empty data, unicode, duplicates)
 
+Unit tests are executed in CI/CD before deployment. In this project, I added an optional pre-execution test task to demonstrate a test-driven mindset and to make the pipeline self-contained for local execution. In a production environment, this task would be disabled or moved entirely to CI.
+
 ---
 
 ## Monitoring & Alerting
