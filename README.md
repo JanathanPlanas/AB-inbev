@@ -8,7 +8,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![DuckDB](https://img.shields.io/badge/duckdb-sql%20engine-yellow.svg)](https://duckdb.org/)
 [![Delta Lake](https://img.shields.io/badge/Delta%20Lake-blueviolet)](https://delta.io/)
-[![Tests](https://img.shields.io/badge/tests-65%20passed-green.svg)]()
+[![Tests](https://img.shields.io/badge/tests-68%20passed-green.svg)]()
 
 A data pipeline solution for the BEES/AB-InBev Data Engineering case. This project consumes data from the [Open Brewery DB API](https://www.openbrewerydb.org/), transforms it following the **Medallion Architecture**, and provides a **transactional and versioned analytical layer**.
 
@@ -146,20 +146,20 @@ AB-INBEV/
 |------------------|--------------------------------|
 | Language         | Python 3.11+                   |
 | Data Processing  | **DuckDB** (SQL-based transformations) |
+| Data Format      | **PyArrow** (zero-copy, columnar) |
 | Storage Format   | **Delta Lake** (ACID transactions, time travel) |
 | Orchestration    | Apache Airflow 2.8             |
 | Containerization | Docker & Docker Compose        |
 | Database         | PostgreSQL 15 (Airflow metadata)|
 | Testing          | pytest                         |
 
-### Why DuckDB + Delta Lake?
+### Why DuckDB + PyArrow + Delta Lake?
 
 | Technology | Benefit |
 |------------|---------|
 | **DuckDB** | High-performance SQL engine, zero configuration, memory efficient |
+| **PyArrow** | Native columnar format, zero-copy data sharing, no Pandas overhead |
 | **Delta Lake** | ACID transactions, schema enforcement, time travel, efficient upserts |
-
-This modern stack demonstrates knowledge of cutting-edge data engineering tools.
 
 ---
 
@@ -175,7 +175,7 @@ This modern stack demonstrates knowledge of cutting-edge data engineering tools.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/ab-inbev-breweries.git
+git clone https://github.com/JanathanPlanas/AB-inbev.git
 cd ab-inbev-breweries
 
 # 2. Create environment file
@@ -194,7 +194,7 @@ docker-compose up -d
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/ab-inbev-breweries.git
+git clone https://github.com/JanathanPlanas/AB-inbev.git
 cd ab-inbev-breweries
 
 # 2. Create virtual environment
@@ -372,6 +372,10 @@ The pipeline is orchestrated using **Apache Airflow** with the following feature
 | Execution Timeout | 1 hour |
 | Catchup | Disabled |
 
+### Airlfow Configuration
+ ![Pipeline Airflow](doc/Airflow.png)
+
+
 ### Tasks
 
 1. **start** - Pipeline start marker
@@ -409,11 +413,11 @@ pytest tests/unit/test_brewery_api_client.py -v
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
-| API Client | 15 | ✅ |
+| API Client | 12 | ✅ |
 | Raw Writer | 17 | ✅ |
-| Silver Transforms | 26 | ✅ |
-| Gold Transforms | 15 | ✅ |
-| **Total** | **73** | ✅ |
+| Silver Transforms | 18 | ✅ |
+| Gold Transforms | 18 | ✅ |
+| **Total** | **65** | ✅ |
 
 ### What's Tested
 
@@ -423,11 +427,13 @@ pytest tests/unit/test_brewery_api_client.py -v
 - Aggregation logic
 - Edge cases (empty data, unicode, duplicates)
 
+Unit tests are executed in CI/CD before deployment. In this project, I added an optional pre-execution test task to demonstrate a test-driven mindset and to make the pipeline self-contained for local execution. In a production environment, this task would be disabled or moved entirely to CI.
+
 ---
 
 ## Monitoring & Alerting
 
-See [doc/MONITORING.md](doc/MONITORING.md) for the complete monitoring strategy.
+See [doc/MONITORING.md](doc/monitoring.md) for the complete monitoring strategy.
 
 ### Summary
 
@@ -457,17 +463,9 @@ See [doc/MONITORING.md](doc/MONITORING.md) for the complete monitoring strategy.
 | **Airflow for orchestration** | Industry standard, rich ecosystem, good UI for monitoring |
 | **Docker Compose** | Easy local setup, reproducible environment |
 
-### Why DuckDB over Pandas/PySpark?
+### Why DuckDB + PyArrow over Pyspark?
 
-| Aspect | DuckDB | Pandas | PySpark |
-|--------|--------|--------|---------|
-| **Performance** | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
-| **Setup complexity** | Zero | Zero | High |
-| **SQL support** | Native | Limited | Native |
-| **Memory efficiency** | High | Medium | High |
-| **Best for** | Analytics | General | Big Data |
-
-For ~8k rows, DuckDB provides the best balance of performance, simplicity, and modern SQL capabilities.
+For ~8k rows, DuckDB + PyArrow provides excellent performance with minimal dependencies.
 
 ### Why Delta Lake over Parquet?
 
@@ -489,7 +487,7 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
 |-----------|----------|-------------|
 | **Storage** | Local filesystem | S3/GCS/ADLS for production |
 | **Processing** | Batch (daily) | Streaming if real-time needed |
-| **Compute** | Single node (Pandas) | Spark for larger datasets |
+| **Compute** | Single node (duckdb + pyarrow) | Spark for larger datasets |
 | **Database** | PostgreSQL (Airflow) | Managed service (Cloud Composer, MWAA) |
 | **Secrets** | .env file | Vault, AWS Secrets Manager |
 
@@ -505,10 +503,13 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
 - [ ] Implement data versioning (Delta Lake)
 
 ---
+  ## Architecture
+  
+  ![Pipeline Animation](doc/Workflow.png)
 
 ## Author
 
-** Janathan Junior**  
+**Janathan**    
 Data Engineer
 
 ---

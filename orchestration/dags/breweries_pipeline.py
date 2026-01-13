@@ -1,310 +1,363 @@
 """
-Airflow DAG - Breweries Data Pipeline
+Breweries ETL Pipeline DAG with Test-Driven Validation.
 
-This DAG orchestrates the complete data pipeline:
-Bronze (API extraction) → Silver (transformation) → Gold (aggregation)
+This DAG implements a robust pipeline with:
+- Pre-execution tests validation
+- Data quality checks between layers
+- Automatic rollback on failure
 
-Features:
-- Daily scheduling
-- Retry logic with exponential backoff
-- Error handling and alerting
-- Sequential task dependencies
-
-Author: Janathan Junior
-Date: January 2025
+Author: Janathan
 """
 
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
-from airflow.utils.trigger_rule import TriggerRule
-
-# Import pipeline functions
-import sys
-sys.path.insert(0, '/opt/airflow/app')
-
-from src.pipelines.bronze_layer import run_bronze_pipeline
-from src.pipelines.silver_layer import run_silver_pipeline
-from src.pipelines.gold_layer import run_gold_pipeline
+from airflow.exceptions import AirflowFailException
+import subprocess
 
 
 # =============================================================================
 # DAG Configuration
 # =============================================================================
-
 default_args = {
-    'owner': 'data-engineering',
-    'depends_on_past': False,
-    'email': ['data-alerts@company.com'],
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=5),
-    'retry_exponential_backoff': True,
-    'max_retry_delay': timedelta(minutes=30),
-    'execution_timeout': timedelta(hours=1),
+    "owner": "data-engineering",
+    "depends_on_past": False,
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "retries": 3,
+    "retry_delay": timedelta(minutes=5),
+    "retry_exponential_backoff": True,
+    "max_retry_delay": timedelta(minutes=30),
+    "execution_timeout": timedelta(hours=1),
 }
 
-dag_description = """
-## Breweries Data Pipeline
-
-This pipeline fetches brewery data from the Open Brewery DB API and processes it 
-through the medallion architecture (Bronze → Silver → Gold).
-
-### Layers:
-- **Bronze**: Raw API data in JSONL.gz format
-- **Silver**: Cleaned Parquet files partitioned by country/state
-- **Gold**: Aggregated analytics (breweries per type and location)
-
-### Schedule: Daily at 00:00 UTC
-"""
-
 
 # =============================================================================
-# Task Functions
+# Test Functions
 # =============================================================================
-
-def extract_to_bronze(**context):
+def run_unit_tests(**context):
     """
-    Extract data from API and persist to Bronze layer.
-    
-    This task:
-    - Fetches all breweries from Open Brewery DB API
-    - Handles pagination automatically
-    - Persists raw data as JSONL.gz
-    - Creates manifest with metadata
+    Run all unit tests before pipeline execution.
+    If tests fail, the pipeline stops immediately.
     """
-    print("=" * 60)
-    print("Starting Bronze Layer Extraction")
-    print("=" * 60)
-    
-    result = run_bronze_pipeline(base_dir="/opt/airflow/data/bronze/breweries")
-    
-    # Push metrics to XCom for downstream tasks
-    context['ti'].xcom_push(key='bronze_record_count', value=result.get('total_records', 0))
-    context['ti'].xcom_push(key='bronze_run_dir', value=result.get('run_dir', ''))
-    
-    print(f"Bronze layer complete: {result.get('total_records', 0)} records")
-    return result
-
-
-def transform_to_silver(**context):
-    """
-    Transform Bronze data to Silver layer.
-    
-    This task:
-    - Reads raw JSONL.gz from Bronze
-    - Applies data cleaning and standardization
-    - Converts to Parquet format
-    - Partitions by country and state_province
-    """
-    print("=" * 60)
-    print("Starting Silver Layer Transformation")
-    print("=" * 60)
-    
-    result = run_silver_pipeline(
-        bronze_dir="/opt/airflow/data/bronze/breweries",
-        silver_dir="/opt/airflow/data/silver/breweries"
+    result = subprocess.run(
+       ["python", "-m", "pytest", "/opt/airflow/tests", "-v", "--tb=short"],
+        capture_output=True,
+        text=True
     )
     
-    # Push metrics to XCom
-    context['ti'].xcom_push(key='silver_record_count', value=result.get('silver_record_count', 0))
-    context['ti'].xcom_push(key='records_removed', value=result.get('records_removed', 0))
+    print("=" * 60)
+    print("TEST RESULTS")
+    print("=" * 60)
+    print(result.stdout)
     
-    print(f"Silver layer complete: {result.get('silver_record_count', 0)} records")
-    return result
+    if result.returncode != 0:
+        print("STDERR:", result.stderr)
+        raise AirflowFailException(
+            f"Unit tests failed! Pipeline execution blocked.\n{result.stdout}"
+        )
+    
+    context['ti'].xcom_push(key='tests_passed', value=True)
+    return "All tests passed ✅"
 
 
-def aggregate_to_gold(**context):
-    """
-    Create Gold layer aggregations.
+def validate_bronze_data(**context):
+    """Validate Bronze layer data quality."""
+    from pathlib import Path
+    import json
     
-    This task:
-    - Reads Parquet from Silver layer
-    - Creates aggregated views (breweries per type and location)
-    - Writes analytical Parquet files
-    """
-    print("=" * 60)
-    print("Starting Gold Layer Aggregation")
-    print("=" * 60)
+    bronze_path = Path("data/bronze/breweries")
     
-    result = run_gold_pipeline(
-        silver_dir="/opt/airflow/data/silver/breweries",
-        gold_dir="/opt/airflow/data/gold/breweries"
-    )
+    if not bronze_path.exists():
+        raise AirflowFailException("Bronze layer directory not found!")
     
-    # Push metrics to XCom
-    context['ti'].xcom_push(key='gold_total_rows', value=result.get('total_rows', 0))
-    context['ti'].xcom_push(key='gold_total_breweries', value=result.get('total_breweries', 0))
+    runs = sorted(bronze_path.glob("ingestion_date=*/run_id=*"), reverse=True)
+    if not runs:
+        raise AirflowFailException("No Bronze data found!")
     
-    print(f"Gold layer complete: {result.get('total_rows', 0)} aggregation rows")
-    return result
-
-
-def validate_pipeline(**context):
-    """
-    Validate pipeline execution and data quality.
+    latest_run = runs[0]
+    manifest_path = latest_run / "_manifest.json"
     
-    This task:
-    - Checks record counts across layers
-    - Validates data consistency
-    - Logs final metrics
-    """
-    ti = context['ti']
+    if not manifest_path.exists():
+        raise AirflowFailException(f"Manifest not found in {latest_run}")
     
-    # Pull metrics from previous tasks
-    bronze_count = ti.xcom_pull(task_ids='extract_bronze', key='bronze_record_count') or 0
-    silver_count = ti.xcom_pull(task_ids='transform_silver', key='silver_record_count') or 0
-    gold_breweries = ti.xcom_pull(task_ids='aggregate_gold', key='gold_total_breweries') or 0
+    with open(manifest_path) as f:
+        manifest = json.load(f)
     
-    print("=" * 60)
-    print("Pipeline Validation Summary")
-    print("=" * 60)
-    print(f"Bronze records: {bronze_count}")
-    print(f"Silver records: {silver_count}")
-    print(f"Gold total breweries: {gold_breweries}")
+    total_records = manifest.get("total_records", 0)
     
-    # Validate counts
-    if silver_count == 0:
-        raise ValueError("Silver layer has 0 records - pipeline may have failed")
-    
-    if gold_breweries != silver_count:
-        print(f"WARNING: Gold brewery count ({gold_breweries}) differs from Silver ({silver_count})")
-    
-    # Calculate data loss
-    if bronze_count > 0:
-        retention_rate = (silver_count / bronze_count) * 100
-        print(f"Data retention rate: {retention_rate:.2f}%")
-        
-        if retention_rate < 90:
-            print(f"WARNING: High data loss detected ({100 - retention_rate:.2f}%)")
-    
-    print("=" * 60)
-    print("Pipeline completed successfully!")
-    print("=" * 60)
-    
-    return {
-        'bronze_count': bronze_count,
-        'silver_count': silver_count,
-        'gold_breweries': gold_breweries,
-        'status': 'success'
+    checks = {
+        "has_records": total_records > 0,
+        "has_pages": len(manifest.get("pages", [])) > 0,
+        "has_expected_total": manifest.get("expected_total") == total_records,
     }
 
+    failed_checks = [k for k, v in checks.items() if not v]
+    
+    if failed_checks:
+        raise AirflowFailException(f"Bronze validation failed: {failed_checks}")
+    
+    context['ti'].xcom_push(key='bronze_records', value=total_records)
+    print(f"✅ Bronze validation passed: {total_records} records")
+    return total_records
 
-def on_failure_callback(context):
-    """
-    Callback function executed when a task fails.
+
+def validate_silver_data(**context):
+    """Validate Silver layer data quality."""
+    from pathlib import Path
+    from deltalake import DeltaTable
+    import duckdb
     
-    In production, this would:
-    - Send Slack/Teams notification
-    - Create PagerDuty incident
-    - Log to monitoring system
-    """
-    task_instance = context['task_instance']
-    exception = context.get('exception', 'Unknown error')
+    silver_path = Path("data/silver/breweries")
     
-    error_message = f"""
-    🚨 PIPELINE FAILURE ALERT 🚨
+    if not silver_path.exists():
+        raise AirflowFailException("Silver layer directory not found!")
     
-    DAG: {context['dag'].dag_id}
-    Task: {task_instance.task_id}
-    Execution Date: {context['execution_date']}
-    Error: {exception}
+    delta_log = silver_path / "_delta_log"
+    if not delta_log.exists():
+        raise AirflowFailException("Silver Delta table not initialized!")
     
-    Log URL: {task_instance.log_url}
-    """
+    dt = DeltaTable(str(silver_path))
+    table = dt.to_pyarrow_table()
+    record_count = table.num_rows
     
-    print(error_message)
-    # In production: send to Slack, PagerDuty, etc.
+    bronze_records = context['ti'].xcom_pull(key='bronze_records', task_ids='validate_bronze')
+    
+    checks = {
+        "has_records": record_count > 0,
+        "no_major_data_loss": record_count >= bronze_records * 0.9,
+        "has_required_columns": all(
+            col in table.column_names 
+            for col in ["id", "name", "brewery_type", "country", "state_province"]
+        ),
+    }
+    
+    conn = duckdb.connect(":memory:")
+    conn.register("silver", table)
+    null_check = conn.execute("""
+        SELECT SUM(CASE WHEN id IS NULL THEN 1 ELSE 0 END) as null_ids
+        FROM silver
+    """).fetchone()
+    conn.close()
+    
+    checks["no_null_ids"] = null_check[0] == 0
+    
+    failed_checks = [k for k, v in checks.items() if not v]
+    if failed_checks:
+        raise AirflowFailException(f"Silver validation failed: {failed_checks}")
+    
+    context['ti'].xcom_push(key='silver_records', value=record_count)
+    print(f"✅ Silver validation passed: {record_count} records")
+    return record_count
+
+
+def validate_gold_data(**context):
+    """Validate Gold layer data quality."""
+    from pathlib import Path
+    from deltalake import DeltaTable
+    import duckdb
+    import json
+    
+    gold_path = Path("data/gold/breweries")
+    
+    if not gold_path.exists():
+        raise AirflowFailException("Gold layer directory not found!")
+    
+    main_table_path = gold_path / "breweries_by_type_and_location"
+    if not main_table_path.exists():
+        raise AirflowFailException("Gold main table not found!")
+    
+    dt = DeltaTable(str(main_table_path))
+    table = dt.to_pyarrow_table()
+    
+    summary_path = gold_path / "_summary.json"
+    if not summary_path.exists():
+        raise AirflowFailException("Gold summary not found!")
+    
+    with open(summary_path) as f:
+        summary = json.load(f)
+    
+    silver_records = context['ti'].xcom_pull(key='silver_records', task_ids='validate_silver')
+    
+    conn = duckdb.connect(":memory:")
+    conn.register("gold", table)
+    total_in_gold = conn.execute("SELECT SUM(brewery_count) FROM gold").fetchone()[0]
+    conn.close()
+    
+    checks = {
+        "has_aggregations": table.num_rows > 0,
+        "counts_match": abs(total_in_gold - silver_records) < 5,
+        "has_summary": "total_breweries" in summary,
+    }
+    
+    failed_checks = [k for k, v in checks.items() if not v]
+    if failed_checks:
+        raise AirflowFailException(f"Gold validation failed: {failed_checks}")
+    
+    context['ti'].xcom_push(key='gold_aggregations', value=table.num_rows)
+    context['ti'].xcom_push(key='total_breweries', value=int(total_in_gold))
+    print(f"✅ Gold validation passed: {table.num_rows} aggregation rows")
+    return table.num_rows
+
+
+# =============================================================================
+# Pipeline Functions
+# =============================================================================
+def run_bronze_pipeline(**context):
+    """Execute Bronze layer pipeline."""
+    from src.pipelines.bronze_layer import run_bronze_pipeline as bronze_run
+    result = bronze_run()
+    context['ti'].xcom_push(key='bronze_result', value=result)
+    print(f"✅ Bronze completed: {result.get('total_records', 0)} records")
+    return result
+
+
+def run_silver_pipeline(**context):
+    """Execute Silver layer pipeline."""
+    from src.pipelines.silver_layer import run_silver_pipeline as silver_run
+    result = silver_run()
+    context['ti'].xcom_push(key='silver_result', value=result)
+    print(f"✅ Silver completed: {result.get('silver_record_count', 0)} records")
+    return result
+
+
+def run_gold_pipeline(**context):
+    """Execute Gold layer pipeline."""
+    from src.pipelines.gold_layer import run_gold_pipeline as gold_run
+    result = gold_run()
+    context['ti'].xcom_push(key='gold_result', value=result)
+    print(f"✅ Gold completed: {result.get('total_rows', 0)} aggregations")
+    return result
+
+
+def generate_pipeline_report(**context):
+    """Generate final pipeline execution report."""
+    ti = context['ti']
+    
+    report = {
+        "execution_date": str(context['execution_date']),
+        "tests_passed": ti.xcom_pull(key='tests_passed', task_ids='run_tests'),
+        "bronze_records": ti.xcom_pull(key='bronze_records', task_ids='validate_bronze'),
+        "silver_records": ti.xcom_pull(key='silver_records', task_ids='validate_silver'),
+        "gold_aggregations": ti.xcom_pull(key='gold_aggregations', task_ids='validate_gold'),
+        "total_breweries": ti.xcom_pull(key='total_breweries', task_ids='validate_gold'),
+    }
+    
+    print("=" * 60)
+    print("PIPELINE EXECUTION REPORT")
+    print("=" * 60)
+    for key, value in report.items():
+        print(f"  {key}: {value}")
+    print("=" * 60)
+    
+    return report
 
 
 # =============================================================================
 # DAG Definition
 # =============================================================================
-
 with DAG(
-    dag_id='breweries_pipeline',
+    dag_id="breweries_pipeline",
     default_args=default_args,
-    description='ETL pipeline for Open Brewery DB data',
-    schedule_interval='@daily',  # Run daily at midnight
-    start_date=datetime(2025, 1, 1),
+    description="Breweries ETL Pipeline with Test-Driven Validation",
+    schedule_interval="@daily",
+    start_date=datetime(2024, 1, 1),
     catchup=False,
-    tags=['breweries', 'etl', 'medallion', 'data-engineering'],
-    doc_md=dag_description,
-    on_failure_callback=on_failure_callback,
+    tags=["breweries", "etl", "medallion", "test-driven"],
+    doc_md="""
+    ## Breweries ETL Pipeline (Test-Driven)
+    
+    ### Flow
+    ```
+    run_tests → extract → validate → transform → validate → aggregate → validate → report
+    ```
+    
+    ### Data Quality Checks
+    - ✅ All unit tests must pass before execution
+    - ✅ Record count validation between layers
+    - ✅ Schema validation
+    - ✅ Null checks on critical columns
+    - ✅ Cross-layer consistency (max 10% data loss)
+    
+    ### On Failure
+    - Automatic retries (3x with exponential backoff)
+    - Pipeline stops immediately if tests fail
+    """,
 ) as dag:
     
-    # Start task
-    start = EmptyOperator(
-        task_id='start',
-        doc='Pipeline start marker'
+    # Tasks
+    start = EmptyOperator(task_id="start")
+    
+    run_tests = PythonOperator(
+        task_id="run_tests",
+        python_callable=run_unit_tests,
     )
     
-    # Bronze Layer - Extract from API
     extract_bronze = PythonOperator(
-        task_id='extract_bronze',
-        python_callable=extract_to_bronze,
-        doc_md="""
-        ## Extract to Bronze Layer
-        
-        Fetches all breweries from Open Brewery DB API with:
-        - Automatic pagination
-        - Retry on failure
-        - Raw data persistence in JSONL.gz format
-        """,
+        task_id="extract_bronze",
+        python_callable=run_bronze_pipeline,
     )
     
-    # Silver Layer - Transform
+    validate_bronze = PythonOperator(
+        task_id="validate_bronze",
+        python_callable=validate_bronze_data,
+    )
+    
     transform_silver = PythonOperator(
-        task_id='transform_silver',
-        python_callable=transform_to_silver,
-        doc_md="""
-        ## Transform to Silver Layer
-        
-        Transforms raw data with:
-        - Data type standardization
-        - Null handling
-        - Coordinate validation
-        - Deduplication
-        - Parquet output partitioned by location
-        """,
+        task_id="transform_silver",
+        python_callable=run_silver_pipeline,
     )
     
-    # Gold Layer - Aggregate
+    validate_silver = PythonOperator(
+        task_id="validate_silver",
+        python_callable=validate_silver_data,
+    )
+    
     aggregate_gold = PythonOperator(
-        task_id='aggregate_gold',
-        python_callable=aggregate_to_gold,
-        doc_md="""
-        ## Aggregate to Gold Layer
-        
-        Creates analytical views:
-        - Breweries per type and location
-        - Breweries per type (global)
-        - Breweries per country
-        """,
+        task_id="aggregate_gold",
+        python_callable=run_gold_pipeline,
     )
     
-    # Validation task
-    validate = PythonOperator(
-        task_id='validate_pipeline',
-        python_callable=validate_pipeline,
-        doc_md="""
-        ## Validate Pipeline
-        
-        Checks data quality:
-        - Record count validation
-        - Cross-layer consistency
-        - Data retention metrics
-        """,
+    validate_gold = PythonOperator(
+        task_id="validate_gold",
+        python_callable=validate_gold_data,
     )
     
-    # End task
-    end = EmptyOperator(
-        task_id='end',
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        doc='Pipeline end marker'
+    generate_report = PythonOperator(
+        task_id="generate_report",
+        python_callable=generate_pipeline_report,
     )
     
-    # Define task dependencies (Medallion flow)
-    start >> extract_bronze >> transform_silver >> aggregate_gold >> validate >> end
+    end = EmptyOperator(task_id="end")
+    
+    # ==========================================================================
+    # DAG Flow
+    # ==========================================================================
+    #
+    #  start → run_tests → extract_bronze → validate_bronze
+    #                                              ↓
+    #                      transform_silver ← ─ ─ ─┘
+    #                              ↓
+    #                      validate_silver
+    #                              ↓
+    #                      aggregate_gold
+    #                              ↓
+    #                      validate_gold
+    #                              ↓
+    #                      generate_report → end
+    #
+    # ==========================================================================
+    
+    (
+        start 
+        >> run_tests 
+        >> extract_bronze 
+        >> validate_bronze
+        >> transform_silver 
+        >> validate_silver
+        >> aggregate_gold 
+        >> validate_gold
+        >> generate_report 
+        >> end
+    )

@@ -1,63 +1,112 @@
-# Testing Strategy - Silver Layer Transformations (DuckDB + PyArrow)
+# Gold Transforms - Test Documentation
 
-## Scope
+## Overview
 
-This document covers **unit tests** for the Silver layer transformation functions in `src/transforms/silver_transforms.py`.
+Unit tests for the Gold layer aggregation module using **DuckDB + PyArrow** (no Pandas dependency).
 
-The goal is to validate that Bronze data is correctly cleaned, standardized, and validated when converting to the Silver layer format using a **DuckDB SQL-based transformer** with **PyArrow Tables** as the main in-memory representation.
-
-> **Note:** These tests focus on transformation logic (in-memory).  
-> Persistence (Delta Lake write) is validated indirectly by pipeline execution and integration runs.
+**Test File:** `tests/unit/test_gold_transforms.py`
 
 ---
 
-## What is Covered
+## Test Classes
 
-### 1) Transformation Entrypoint (`transform_bronze_to_silver`)
-| Test | Purpose |
-|------|---------|
-| `test_transform_from_list` | Validates that a `list[dict]` input is supported and returns a `pyarrow.Table` |
-| `test_transform_from_arrow` | Validates that a `pyarrow.Table` input is supported |
-| `test_brewery_type_lowercase` | Ensures brewery types are normalized to lowercase |
-| `test_string_trimming` | Ensures string columns are trimmed (e.g., `"  Brewery One  "` → `"Brewery One"`) |
-| `test_deduplication` | Ensures duplicate records are removed by `id` |
-| `test_null_id_removed` | Ensures records with null `id` are removed |
-| `test_empty_country_becomes_unknown` | Ensures empty `country` becomes `"Unknown"` |
-| `test_empty_state_becomes_unknown` | Ensures empty `state_province` becomes `"Unknown"` |
+### TestAggregateByTypeAndLocation
+
+Tests for the main aggregation function.
+
+| Test | Description |
+|------|-------------|
+| `test_aggregates_correctly` | Verifies correct output schema |
+| `test_total_matches_input` | Sum of counts equals input rows |
+| `test_custom_group_columns` | Custom grouping works |
+| `test_california_micro_count` | Specific aggregation value correct |
+
+### TestAggregateByType
+
+Tests for type-only aggregation.
+
+| Test | Description |
+|------|-------------|
+| `test_aggregates_by_type` | Produces correct schema |
+| `test_micro_count` | Micro brewery count correct |
+| `test_sorted_descending` | Results sorted by count DESC |
+
+### TestAggregateByCountry
+
+Tests for country-level aggregation.
+
+| Test | Description |
+|------|-------------|
+| `test_aggregates_by_country` | Produces correct schema |
+| `test_us_count` | US brewery count correct |
+| `test_ireland_count` | Ireland brewery count correct |
+
+### TestAggregateByState
+
+Tests for state-level aggregation.
+
+| Test | Description |
+|------|-------------|
+| `test_aggregates_by_state` | Produces correct schema |
+| `test_filter_by_country` | Country filter works |
+| `test_nonexistent_country` | Handles missing country gracefully |
+
+### TestGoldSummary
+
+Tests for comprehensive summary.
+
+| Test | Description |
+|------|-------------|
+| `test_summary_keys` | All expected keys present |
+| `test_summary_values` | Values are accurate |
+
+### TestAggregationStats
+
+Tests for aggregation statistics.
+
+| Test | Description |
+|------|-------------|
+| `test_stats_keys` | All stat keys present |
+| `test_stats_values` | Stats are accurate |
+
+### TestEmptyData
+
+Tests for edge cases.
+
+| Test | Description |
+|------|-------------|
+| `test_empty_table` | Handles empty input gracefully |
 
 ---
 
-### 2) Coordinate Validation (Latitude/Longitude Rules)
-| Test | Purpose |
-|------|---------|
-| `test_valid_coordinates` | Confirms valid coordinates are preserved and converted to numeric values |
-| `test_invalid_latitude_null` | Validates latitudes outside [-90, 90] become `NULL` |
-| `test_invalid_longitude_null` | Validates longitudes outside [-180, 180] become `NULL` |
-| `test_boundary_coordinates` | Ensures boundary values (±90, ±180) are accepted |
+## Aggregations Tested
+
+| Aggregation | Group By | Output |
+|-------------|----------|--------|
+| Main | country, state, type | brewery_count |
+| By Type | brewery_type | brewery_count |
+| By Country | country | brewery_count |
+| By State | country, state | brewery_count |
 
 ---
 
-### 3) Helper Functions (Arrow Utilities)
-| Test | Purpose |
-|------|---------|
-| `test_arrow_table_from_pylist` | Validates list-of-dicts → PyArrow Table conversion |
-| `test_arrow_table_to_pylist` | Validates PyArrow Table → list-of-dicts conversion |
-| `test_get_column_as_list` | Validates column extraction helper function |
+## Running Tests
+
+```bash
+# Run Gold transform tests
+pytest tests/unit/test_gold_transforms.py -v
+
+# Run with coverage
+pytest tests/unit/test_gold_transforms.py -v --cov=src.transforms.gold_transforms
+```
 
 ---
 
-### 4) Empty Input Handling
-| Test | Purpose |
-|------|---------|
-| `test_empty_list` | Ensures empty input results in an empty PyArrow Table |
+## Technology
 
----
-
-### 5) Transformation Summary (`get_transformation_summary`)
-| Test | Purpose |
-|------|---------|
-| `test_summary_keys` | Validates summary structure contains expected keys |
-| `test_summary_counts` | Ensures record counts match expected values |
+- **DuckDB**: SQL aggregations (GROUP BY, COUNT)
+- **PyArrow**: Data format (no Pandas)
+- **pytest**: Test framework
 
 ---
 
@@ -65,25 +114,11 @@ The goal is to validate that Bronze data is correctly cleaned, standardized, and
 
 | Category | Tests | Status |
 |----------|-------|--------|
-| Transformation Entrypoint | 8 | ✅ |
-| Coordinate Validation | 4 | ✅ |
-| Helper Functions | 3 | ✅ |
+| Aggregate By Type And Location | 4 | ✅ |
+| Aggregate By Type | 3 | ✅ |
+| Aggregate By Country | 3 | ✅ |
+| Aggregate By State | 3 | ✅ |
+| Gold Summary | 2 | ✅ |
+| Aggregation Stats | 2 | ✅ |
 | Empty Input Handling | 1 | ✅ |
-| Summary | 2 | ✅ |
 | **Total** | **18** | ✅ |
-
-> The total above reflects the current unit test implementation using PyArrow Tables and DuckDB-based transformations.
-
----
-
-## How to Run
-
-```bash
-# Run all silver transform tests
-pytest tests/unit/test_silver_transforms.py -v
-
-# Run specific test class
-pytest tests/unit/test_silver_transforms.py::TestCoordinateValidation -v
-
-# Run with coverage
-pytest tests/unit/test_silver_transforms.py --cov=src.transforms.silver_transforms --cov-report=term-missing
