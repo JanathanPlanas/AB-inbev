@@ -499,11 +499,11 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
 ---
   ## Architecture
   
-  ![Pipeline Animation](doc/pipeline-animation.gif)
+  ![Pipeline Animation](doc/Workflow.png)
 
 ## Author
 
-**Janathan**  
+**Janathan**    
 Data Engineer
 
 ---
