@@ -1,13 +1,50 @@
 app:
+  name: "breweries-pipeline"
+  environment: "local"
   log_level: "info"
-  
+  timezone: "UTC"
+
 api:
   base_url: "https://api.openbrewerydb.org/v1"
-
+  endpoint: "/breweries"
 
 params:
-    per_page:  200  # Maximum allowed by API
-    max_retries:  3
-    backoff_factor:  0.5
-    timeout:  30
+  per_page: 200
+  max_retries: 3
+  backoff_factor: 0.5
+  timeout: 30
 
+pipeline:
+  bronze:
+    enabled: true
+  silver:
+    deduplicate: true
+    min_record_ratio: 0.9
+  gold:
+    tolerance: 5
+
+data_quality:
+  bronze:
+    require_manifest: true
+    require_records: true
+  silver:
+    required_columns:
+      - id
+      - name
+      - brewery_type
+      - country
+      - state_province
+  gold:
+    allow_count_tolerance: 5
+
+orchestration:
+  schedule: "@daily"
+  retries: 3
+  retry_delay_minutes: 5
+  execution_timeout_minutes: 60
+
+monitoring:
+  enable_alerts: true
+  alert_channels:
+    - slack
+    - pagerduty
