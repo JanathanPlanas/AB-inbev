@@ -44,6 +44,5 @@ logs
 doc/*.pdf
 *.md
 !README.md
-
 # Tests (optional - remove if you want tests in container)
 # tests/

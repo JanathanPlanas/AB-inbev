@@ -8,7 +8,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![DuckDB](https://img.shields.io/badge/duckdb-sql%20engine-yellow.svg)](https://duckdb.org/)
 [![Delta Lake](https://img.shields.io/badge/Delta%20Lake-blueviolet)](https://delta.io/)
-[![Tests](https://img.shields.io/badge/tests-68%20passed-green.svg)]()
+[![Tests](https://img.shields.io/badge/tests-65%20passed-green.svg)]()
 
 A data pipeline solution for the BEES/AB-InBev Data Engineering case. This project consumes data from the [Open Brewery DB API](https://www.openbrewerydb.org/), transforms it following the **Medallion Architecture**, and provides a **transactional and versioned analytical layer**.
 
@@ -55,7 +55,8 @@ This pipeline fetches brewery data from a public API and processes it through th
 ### Airflow DAG Flow
 
 ```
-start → extract_bronze → transform_silver → aggregate_gold → validate → end
+run_tests → extract_bronze → validate_bronze → transform_silver → validate_silver → aggregate_gold → validate_gold → generate_report
+
 ```
 
 ---
@@ -507,10 +508,13 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
   
   ![Pipeline Animation](doc/Workflow.png)
 
+
+
+
 ## Author
 
-**Janathan**    
-Data Engineer
+**Janathan Junior**    
+Sr Data Engineer
 
 ---
 
