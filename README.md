@@ -372,6 +372,10 @@ The pipeline is orchestrated using **Apache Airflow** with the following feature
 | Execution Timeout | 1 hour |
 | Catchup | Disabled |
 
+### Airlfow Configuration
+ ! [Airflow](doc/airflow.png) 
+
+
 ### Tasks
 
 1. **start** - Pipeline start marker
