@@ -373,7 +373,7 @@ The pipeline is orchestrated using **Apache Airflow** with the following feature
 | Catchup | Disabled |
 
 ### Airlfow Configuration
- ! [Airflow](doc/airflow.png) 
+ ![Pipeline Airflow](doc/Airflow.png)
 
 
 ### Tasks
