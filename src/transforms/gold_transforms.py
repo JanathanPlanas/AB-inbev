@@ -1,11 +1,6 @@
 """
-Gold Layer Transformations.
-
-This module contains aggregation functions for creating
-analytical views from the Silver layer data.
-
-Main aggregation:
-- Quantity of breweries per type and location (country/state)
+Gold Layer Transformations using DuckDB + PyArrow.
+NO PANDAS DEPENDENCY.
 """
 
 from __future__ import annotations
@@ -13,165 +8,184 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-import pandas as pd
+import duckdb
+import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
 
-def aggregate_by_type_and_location(
-    df: pd.DataFrame,
-    group_cols: Optional[List[str]] = None
-) -> pd.DataFrame:
-    """
-    Aggregate breweries by type and location.
+class DuckDBAggregator:
+    """DuckDB-based aggregator for Gold layer. No Pandas."""
     
-    Creates a summary table with the count of breweries
-    for each combination of brewery_type, country, and state_province.
+    def __init__(self):
+        self.conn = duckdb.connect(":memory:")
     
-    Args:
-        df: Silver layer DataFrame
-        group_cols: Columns to group by (default: country, state_province, brewery_type)
+    def aggregate_by_type_and_location(
+        self,
+        table: pa.Table,
+        group_cols: Optional[List[str]] = None
+    ) -> pa.Table:
+        """Aggregate breweries by type and location."""
+        group_cols = group_cols or ["country", "state_province", "brewery_type"]
         
-    Returns:
-        Aggregated DataFrame with brewery counts
+        if table.num_rows == 0:
+            schema = pa.schema([(col, pa.string()) for col in group_cols] + [("brewery_count", pa.int64())])
+            return pa.Table.from_pylist([], schema=schema)
         
-    Example:
-        >>> gold_df = aggregate_by_type_and_location(silver_df)
-        >>> print(gold_df.head())
+        logger.info(f"Aggregating by: {group_cols}")
+        self.conn.register("silver", table)
         
-        | country       | state_province | brewery_type | brewery_count |
-        |---------------|----------------|--------------|---------------|
-        | United States | California     | micro        | 523           |
-        | United States | California     | brewpub      | 187           |
-    """
-    group_cols = group_cols or ["country", "state_province", "brewery_type"]
-    
-    logger.info(f"Aggregating by: {group_cols}")
-    
-    # Perform aggregation
-    aggregated = (
-        df.groupby(group_cols, as_index=False)
-        .agg(brewery_count=("id", "count"))
-    )
-    
-    # Sort for consistent output (only use columns that exist)
-    sort_cols = [col for col in ["country", "state_province", "brewery_count"] if col in aggregated.columns]
-    sort_ascending = [True if col != "brewery_count" else False for col in sort_cols]
-    
-    aggregated = aggregated.sort_values(
-        by=sort_cols,
-        ascending=sort_ascending
-    ).reset_index(drop=True)
-    
-    logger.info(f"Created {len(aggregated)} aggregated rows")
-    return aggregated
-
-
-def aggregate_by_type(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregate breweries by type only (global summary).
-    
-    Args:
-        df: Silver layer DataFrame
+        group_cols_sql = ", ".join(f'"{col}"' for col in group_cols)
+        order_cols = []
+        if "country" in group_cols:
+            order_cols.append('"country" ASC')
+        if "state_province" in group_cols:
+            order_cols.append('"state_province" ASC')
+        order_cols.append("brewery_count DESC")
         
-    Returns:
-        DataFrame with brewery counts per type
-    """
-    aggregated = (
-        df.groupby("brewery_type", as_index=False)
-        .agg(brewery_count=("id", "count"))
-        .sort_values("brewery_count", ascending=False)
-        .reset_index(drop=True)
-    )
-    
-    logger.info(f"Global type distribution: {len(aggregated)} types")
-    return aggregated
-
-
-def aggregate_by_country(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregate breweries by country only.
-    
-    Args:
-        df: Silver layer DataFrame
+        sql = f"""
+            SELECT {group_cols_sql}, COUNT(*)::BIGINT as brewery_count
+            FROM silver
+            GROUP BY {group_cols_sql}
+            ORDER BY {", ".join(order_cols)}
+        """
         
-    Returns:
-        DataFrame with brewery counts per country
-    """
-    aggregated = (
-        df.groupby("country", as_index=False)
-        .agg(brewery_count=("id", "count"))
-        .sort_values("brewery_count", ascending=False)
-        .reset_index(drop=True)
-    )
+        result = self.conn.execute(sql).fetch_arrow_table()
+        logger.info(f"Created {result.num_rows} aggregated rows")
+        return result
     
-    logger.info(f"Country distribution: {len(aggregated)} countries")
-    return aggregated
-
-
-def aggregate_by_state(df: pd.DataFrame, country: Optional[str] = None) -> pd.DataFrame:
-    """
-    Aggregate breweries by state/province.
-    
-    Args:
-        df: Silver layer DataFrame
-        country: Optional filter by country
+    def aggregate_by_type(self, table: pa.Table) -> pa.Table:
+        """Aggregate breweries by type."""
+        if table.num_rows == 0:
+            return pa.Table.from_pylist([], schema=pa.schema([("brewery_type", pa.string()), ("brewery_count", pa.int64())]))
         
-    Returns:
-        DataFrame with brewery counts per state
-    """
-    if country:
-        df = df[df["country"] == country]
+        self.conn.register("silver_type", table)
+        return self.conn.execute("""
+            SELECT brewery_type, COUNT(*)::BIGINT as brewery_count
+            FROM silver_type GROUP BY brewery_type ORDER BY brewery_count DESC
+        """).fetch_arrow_table()
     
-    aggregated = (
-        df.groupby(["country", "state_province"], as_index=False)
-        .agg(brewery_count=("id", "count"))
-        .sort_values("brewery_count", ascending=False)
-        .reset_index(drop=True)
-    )
-    
-    logger.info(f"State distribution: {len(aggregated)} states")
-    return aggregated
-
-
-def create_gold_summary(df: pd.DataFrame) -> dict:
-    """
-    Create a comprehensive summary for the Gold layer.
-    
-    Args:
-        df: Silver layer DataFrame
+    def aggregate_by_country(self, table: pa.Table) -> pa.Table:
+        """Aggregate breweries by country."""
+        if table.num_rows == 0:
+            return pa.Table.from_pylist([], schema=pa.schema([("country", pa.string()), ("brewery_count", pa.int64())]))
         
-    Returns:
-        Dictionary with multiple aggregation summaries
-    """
-    return {
-        "total_breweries": len(df),
-        "total_countries": df["country"].nunique(),
-        "total_states": df["state_province"].nunique(),
-        "total_types": df["brewery_type"].nunique(),
-        "by_type": aggregate_by_type(df).to_dict(orient="records"),
-        "by_country": aggregate_by_country(df).to_dict(orient="records"),
-        "top_states": aggregate_by_state(df).head(10).to_dict(orient="records"),
-    }
-
-
-def get_aggregation_stats(gold_df: pd.DataFrame) -> dict:
-    """
-    Get statistics about the Gold layer aggregation.
+        self.conn.register("silver_country", table)
+        return self.conn.execute("""
+            SELECT country, COUNT(*)::BIGINT as brewery_count
+            FROM silver_country GROUP BY country ORDER BY brewery_count DESC
+        """).fetch_arrow_table()
     
-    Args:
-        gold_df: Gold layer aggregated DataFrame
+    def aggregate_by_state(self, table: pa.Table, country: Optional[str] = None) -> pa.Table:
+        """Aggregate breweries by state."""
+        if table.num_rows == 0:
+            return pa.Table.from_pylist([], schema=pa.schema([
+                ("country", pa.string()), ("state_province", pa.string()), ("brewery_count", pa.int64())
+            ]))
         
-    Returns:
-        Dictionary with aggregation statistics
-    """
-    return {
-        "total_rows": len(gold_df),
-        "total_breweries": gold_df["brewery_count"].sum(),
-        "unique_countries": gold_df["country"].nunique(),
-        "unique_states": gold_df["state_province"].nunique(),
-        "unique_types": gold_df["brewery_type"].nunique(),
-        "avg_breweries_per_group": round(gold_df["brewery_count"].mean(), 2),
-        "max_breweries_in_group": gold_df["brewery_count"].max(),
-        "min_breweries_in_group": gold_df["brewery_count"].min(),
-    }
+        self.conn.register("silver_state", table)
+        if country:
+            sql = f"""
+                SELECT country, state_province, COUNT(*)::BIGINT as brewery_count
+                FROM silver_state WHERE country = '{country}'
+                GROUP BY country, state_province ORDER BY brewery_count DESC
+            """
+        else:
+            sql = """
+                SELECT country, state_province, COUNT(*)::BIGINT as brewery_count
+                FROM silver_state GROUP BY country, state_province ORDER BY brewery_count DESC
+            """
+        return self.conn.execute(sql).fetch_arrow_table()
+    
+    def create_gold_summary(self, table: pa.Table) -> dict:
+        """Create comprehensive summary."""
+        if table.num_rows == 0:
+            return {"total_breweries": 0, "total_countries": 0, "total_states": 0, "total_types": 0,
+                    "by_type": [], "by_country": [], "top_states": []}
+        
+        self.conn.register("silver_summary", table)
+        totals = self.conn.execute("""
+            SELECT COUNT(*), COUNT(DISTINCT country), COUNT(DISTINCT state_province), COUNT(DISTINCT brewery_type)
+            FROM silver_summary
+        """).fetchone()
+        
+        return {
+            "total_breweries": totals[0],
+            "total_countries": totals[1],
+            "total_states": totals[2],
+            "total_types": totals[3],
+            "by_type": self.aggregate_by_type(table).to_pylist(),
+            "by_country": self.aggregate_by_country(table).to_pylist(),
+            "top_states": self.aggregate_by_state(table).to_pylist()[:10],
+        }
+    
+    def get_aggregation_stats(self, gold_table: pa.Table) -> dict:
+        """Get aggregation statistics."""
+        if gold_table.num_rows == 0:
+            return {"total_rows": 0, "total_breweries": 0, "unique_countries": 0, "unique_states": 0,
+                    "unique_types": 0, "avg_breweries_per_group": 0.0, "max_breweries_in_group": 0, "min_breweries_in_group": 0}
+        
+        self.conn.register("gold_stats", gold_table)
+        stats = self.conn.execute("""
+            SELECT COUNT(*), SUM(brewery_count), COUNT(DISTINCT country), COUNT(DISTINCT state_province),
+                   COUNT(DISTINCT brewery_type), ROUND(AVG(brewery_count), 2), MAX(brewery_count), MIN(brewery_count)
+            FROM gold_stats
+        """).fetchone()
+        
+        return {
+            "total_rows": int(stats[0]),
+            "total_breweries": int(stats[1]) if stats[1] else 0,
+            "unique_countries": int(stats[2]) if stats[2] else 0,
+            "unique_states": int(stats[3]) if stats[3] else 0,
+            "unique_types": int(stats[4]) if stats[4] else 0,
+            "avg_breweries_per_group": float(stats[5]) if stats[5] else 0.0,
+            "max_breweries_in_group": int(stats[6]) if stats[6] else 0,
+            "min_breweries_in_group": int(stats[7]) if stats[7] else 0,
+        }
+    
+    def close(self):
+        self.conn.close()
+
+
+# Convenience functions
+def aggregate_by_type_and_location(table: pa.Table, group_cols: Optional[List[str]] = None) -> pa.Table:
+    agg = DuckDBAggregator()
+    try:
+        return agg.aggregate_by_type_and_location(table, group_cols)
+    finally:
+        agg.close()
+
+def aggregate_by_type(table: pa.Table) -> pa.Table:
+    agg = DuckDBAggregator()
+    try:
+        return agg.aggregate_by_type(table)
+    finally:
+        agg.close()
+
+def aggregate_by_country(table: pa.Table) -> pa.Table:
+    agg = DuckDBAggregator()
+    try:
+        return agg.aggregate_by_country(table)
+    finally:
+        agg.close()
+
+def aggregate_by_state(table: pa.Table, country: Optional[str] = None) -> pa.Table:
+    agg = DuckDBAggregator()
+    try:
+        return agg.aggregate_by_state(table, country)
+    finally:
+        agg.close()
+
+def create_gold_summary(table: pa.Table) -> dict:
+    agg = DuckDBAggregator()
+    try:
+        return agg.create_gold_summary(table)
+    finally:
+        agg.close()
+
+def get_aggregation_stats(gold_table: pa.Table) -> dict:
+    agg = DuckDBAggregator()
+    try:
+        return agg.get_aggregation_stats(gold_table)
+    finally:
+        agg.close()
