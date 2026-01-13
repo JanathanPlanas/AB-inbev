@@ -175,7 +175,7 @@ This modern stack demonstrates knowledge of cutting-edge data engineering tools.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/ab-inbev-breweries.git
+git clone https://github.com/JanathanPlanas/AB-inbev.git
 cd ab-inbev-breweries
 
 # 2. Create environment file
@@ -194,7 +194,7 @@ docker-compose up -d
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/ab-inbev-breweries.git
+git clone https://github.com/JanathanPlanas/AB-inbev.git
 cd ab-inbev-breweries
 
 # 2. Create virtual environment
