@@ -7,7 +7,7 @@
 [![Airflow 2.8](https://img.shields.io/badge/airflow-2.8-orange.svg)](https://airflow.apache.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![DuckDB](https://img.shields.io/badge/duckdb-sql%20engine-yellow.svg)](https://duckdb.org/)
-[![Delta Lake](https://img.shields.io/badge/delta-lake-acid-blueviolet.svg)](https://delta.io/)
+[![Delta Lake](https://img.shields.io/badge/Delta%20Lake-blueviolet)](https://delta.io/)
 [![Tests](https://img.shields.io/badge/tests-65%20passed-green.svg)]()
 
 A data pipeline solution for the BEES/AB-InBev Data Engineering case. This project consumes data from the [Open Brewery DB API](https://www.openbrewerydb.org/), transforms it following the **Medallion Architecture**, and provides a **transactional and versioned analytical layer**.
