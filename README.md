@@ -501,7 +501,6 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
 - [ ] Add Slack/Teams notifications
 - [ ] Deploy to cloud (AWS/GCP/Azure)
 - [ ] Add CI/CD pipeline (GitHub Actions)
-- [ ] Implement data versioning (Delta Lake)
 
 ---
   ## Architecture
@@ -509,6 +508,17 @@ Delta Lake adds lakehouse capabilities on top of Parquet.
   ![Pipeline Animation](doc/Workflow.png)
 
 
+
+## Production Considerations
+
+If this pipeline were promoted to a production environment, the following changes should be applied:
+
+- Object storage (S3/GCS/ADLS) instead of local filesystem
+- CI/CD pipeline enforcing tests and linting before merge
+- Removal of unit test execution from Airflow DAG
+- Secrets stored in a secrets manager (Vault / AWS Secrets Manager)
+- Incremental ingestion using Delta Lake merge
+- Observability via metrics (Prometheus) and alerts (Slack/PagerDuty)
 
 
 ## Author
